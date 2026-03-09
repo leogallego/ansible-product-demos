@@ -90,3 +90,24 @@ export ANSIBLE_GALAXY_SERVER_VALIDATED_TOKEN="<token>"
 - Always work on feature branches — never commit directly to `main`.
 - Branch naming: `<type>/<short-description>` using snake_case (e.g., `feature/add_patching_demo`, `fix/cloud_setup_survey`, `docs/update_readme`).
 - Create a PR to merge feature branches into `main`. Push the branch and open the PR against `main`.
+
+## Claude Config Branch
+
+This file (`CLAUDE.md`) and other Claude Code config (`.gitignore` updates, `setup-claude.sh`) live on an **orphan branch called `claude-config`**. They are NOT tracked on `main` or any feature branch.
+
+### Rules
+
+- **Never commit `CLAUDE.md` or Claude-specific `.gitignore` changes to `main`** or to feature branches. These files must only be committed on `claude-config`.
+- When you modify `CLAUDE.md`, commit the change to `claude-config` — not to the current working branch.
+- `CLAUDE.md` should be present in the working tree (untracked on `main`) so Claude Code loads it on every run. If it is missing, restore it:
+  ```bash
+  git checkout claude-config -- CLAUDE.md
+  git reset HEAD CLAUDE.md
+  ```
+- The `setup-claude.sh` script on `claude-config` automates restoring config after a fresh clone:
+  ```bash
+  git fetch origin claude-config
+  git checkout claude-config -- setup-claude.sh
+  ./setup-claude.sh
+  ```
+- When creating PRs to upstream or `main`, verify that `CLAUDE.md` is not included in the diff.
