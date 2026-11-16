@@ -28,3 +28,6 @@ docs/demos/*/index.md
 
 # Leftover export from jopaik/patch_demo clone
 .patch_demo_export/
+
+# OpenCode project-local skills (symlinked from ~/ai/ai-skills-ansible)
+.opencode/

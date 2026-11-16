@@ -29,12 +29,12 @@ Provisioning, inventory setup, and an explicit lab-only **Prepare Drift** job ha
 
 - Reuse APD's Network deployment workflow, hypervisor provisioning, Containerlab, inventory patterns, validation, reporting, and teardown.
 - Keep the complete `product_demos` topology. Initially remediate only its C8000V, `cat8kv1`.
-- Add persistent NetBox Podman Compose services on that same hypervisor.
+- Run NetBox as a persistent Podman Compose stack on a dedicated, deployment-owned EC2 instance, following APD's Gitea/Mattermost provisioning pattern (#391) — not on the lab hypervisor.
 - Make NetBox dynamic inventory mandatory for the new security jobs; leave existing jobs on their current inventory.
 - Use a dedicated NetBox EE for new jobs and inventory synchronization. Preserve Product Demos EE and existing working dependencies.
-- Use restricted **HTTP** access to NetBox, default hypervisor port `8000`, consistent with APD's existing AWS service exposure pattern.
+- Use restricted **HTTP** access to NetBox, default port `8000` on the NetBox instance, consistent with APD's existing AWS service exposure pattern.
 - Use native AAP workflow approval, a short-lived one-device plan, and a disable-only IOS-XE adapter.
-- Assume the current hypervisor fits; measure during integration and increase existing provisioning parameters only if necessary.
+- Size the NetBox instance modestly at the Gitea/Mattermost baseline and adjust through the same provisioning parameters only if integration shows it is necessary. Lab hypervisor capacity is unchanged by this demo.
 
 **Non-goals:** New AAP or OpenShift deployments, a custom topology/provisioning framework, Gitea, exploitation, a deliberately vulnerable image, firmware upgrades, additional vendor remediation adapters, fleet concurrency, scanners/CVE matching, policy engines, ITSM, external evidence archives, or production-readiness claims.
 
@@ -64,8 +64,9 @@ Paths below are relative to APD unless another repository is identified.
 | Unchanged | Product Demos EE, existing Staging/Upgrade jobs | Do not replace their runtime or invoke upgrades from this scenario |
 | Parameterized | Existing provisioning/deployment jobs | Restricted access ranges; capacity/image overrides only when required |
 | Parameterized | `network/validate_containerlab.yml`, `network/report.yml`, troubleshooting | Invoke existing content with appropriate inventory/host selections |
+| Reused as pattern | #391 Gitea/Mattermost provisioning: create-or-reuse dedicated EC2 via `demo.cloud.aws` `create_vm`, APD ownership/deployment tags, keypair/subnet prerequisites, service configuration, AAP registration | Provision/Configure NetBox follows the same flow — without printed default credentials or broad ingress |
 | Extended | Containerlab deployment metadata and inventory update | Record current ownership, endpoint mapping, and topology generation for reconciliation and stale-plan rejection |
-| Extended | Shared discovery and teardown guards | Bound operations to the deployment and explicitly protect/confirm destruction of persistent NetBox data |
+| Extended | Shared discovery and teardown guards | Bound operations to the deployment; NetBox data lives on its own instance, so hypervisor teardown no longer threatens it — destructive cleanup instead explicitly confirms NetBox instance termination |
 | Extended | `network/setup.yml`, existing report filter/build role/template, tests | Register new resources; optionally add sanitized security evidence without changing default reports |
 | Adapted into new APD content | Circuits `pb_setup_local_netbox.yml`, `pb_seed_netbox.yml`, `pb_setup_aap.yml` | Reuse patterns, not wholesale playbooks, old settings, circuit data, legacy crypto, or TLS bypasses |
 | Genuinely new | NetBox inventory source, narrow IOS-XE adapter, plan/approval workflow, evidence contract, Prepare Drift | Implement only the missing security scenario |
@@ -79,8 +80,10 @@ Existing APD AAP 2.7 and EDA
 Existing RHEL hypervisor
   +-- product_demos Containerlab topology
   |     cat8kv1, veos2, vjunos3, veos4, scp-server
-  +-- persistent NetBox Compose project -> restricted HTTP :8000
   +-- existing APD report server :8088
+
+NetBox instance (dedicated, deployment-owned EC2 — #391 pattern)
+  +-- persistent NetBox Compose project -> restricted HTTP :8000
 
 Containerlab discovery + trusted catalog
   -> reconcile owned NetBox assets and endpoint metadata
@@ -93,16 +96,16 @@ There is no AAP hosting/deployment choice in this demo: use the supplied APD env
 
 ### NetBox services and isolation
 
-- Adapt the circuits Compose approach to a deployment-specific project and persistent systemd service on the hypervisor, not on an execution node.
+- Provision a dedicated, deployment-owned RHEL 9 EC2 instance following the #391 Gitea/Mattermost pattern: create-or-reuse via `demo.cloud.aws` `create_vm`, APD ownership/deployment tags, and the existing keypair/subnet prerequisites. This adds one small instance and removes any capacity coupling with the lab hypervisor.
+- Size the instance at the Gitea/Mattermost baseline (`t3.medium`) initially; adjust through the same provisioning variables only if integration shows it is necessary. Do not shrink the lab topology or create a second provisioning framework for this demo.
+- Adapt the circuits Compose approach to a deployment-specific project and persistent systemd service on the NetBox instance — not on an execution node or the lab hypervisor.
 - Pin a reviewed `netbox-docker` revision and compatible service image digests. NetBox **4.7.4** is the release-note-reviewed starting candidate; verify availability/security status before selecting the implementation lock set.
 - Include the application, worker, PostgreSQL, and cache/queue services required by that Compose revision. NetBox 4.7 requires PostgreSQL 15+, the `ltree` extension/database permissions, and Redis 6+ or a verified supported equivalent.
-- Keep Compose names, network, storage, and lifecycle separate from Containerlab. Do not use host networking, publish database/cache ports, or overlap lab/VPC address ranges.
-- Publish only the NetBox application port, proposed `8000:8080`; preserve report port `8088` and all device mappings.
-- Attach a deployment-owned **dedicated NetBox security group**, preserving existing attachments. Manage its rules independently: `network/deploy_containerlab.yml` uses `purge_rules: true` on the existing Containerlab group.
-- Require restricted source CIDRs covering actual AAP execution egress and presenter access. Inspect the union of attached security-group rules; reject unrestricted management ingress for this demo. Coordinate the host firewall and SELinux without blanket disabling.
+- Keep Compose names, network, storage, and lifecycle fully separate from both the lab hypervisor and Containerlab. Do not use host networking or publish database/cache ports.
+- Publish only the NetBox application port from the instance's security group, proposed `8000:8080`. The lab hypervisor's report port `8088` and all device mappings are untouched.
+- Attach a deployment-owned **dedicated NetBox security group** on the instance. Because NetBox is a separate instance, the Containerlab group's `purge_rules: true` behavior in `network/deploy_containerlab.yml` cannot affect NetBox access rules.
+- Require restricted source CIDRs covering actual AAP execution egress and presenter access; reject unrestricted management ingress. Do not copy #391's printed default credentials or broad access. Coordinate the instance firewall and SELinux without blanket disabling.
 - HTTP is an explicit lab trade-off: NetBox passwords/API tokens travel unencrypted. Do not misrepresent it as TLS-secured or hide the issue with verification bypasses. Existing AAP/EDA HTTPS endpoints continue to use certificate verification and appropriate trust.
-
-Use the current `c8i.4xlarge` baseline (16 vCPU/32 GiB) and existing 100 GiB data disk initially. Their documented validation covers the existing lab, not NetBox. Capture combined cold-boot/steady-state CPU, memory, disk and container usage; increase supported instance/disk parameters if actual tests show insufficient capacity. Do not create a second provisioning framework or shrink the topology just for this demo.
 
 ### Initial Cisco image
 
@@ -175,8 +178,8 @@ Use the APD organization/project and `NETWORK ǀ NetBox Security` naming. Keep t
 
 | Proposed job | Behavior / credentials |
 |---|---|
-| Setup Lab | Workflow chaining the existing Network deployment/configuration/validation templates and the Deploy NetBox, Seed NetBox, and Configure EDA templates below — not one monolithic playbook. Also support attaching to an existing lab without redeploying devices |
-| Deploy NetBox / Seed NetBox | Service/bootstrap operations using existing AWS/hypervisor access and separate NetBox administrative credential; not runtime credentials |
+| Setup Lab | Workflow chaining the existing Network deployment/configuration/validation templates and the NetBox provisioning/seeding and Configure EDA templates below — not one monolithic playbook. Also support attaching to an existing lab without redeploying devices |
+| Provision / Configure / Seed NetBox | Create-or-reuse the dedicated NetBox EC2 instance and deploy/configure its Compose stack, then seed — using existing AWS access and a separate NetBox administrative credential; not runtime credentials |
 | Configure EDA | Reuse APD's project/DE registration patterns; create scoped stream credentials, mapping and activation |
 | Audit | NetBox read + device SSH + evidence writer + event producer; read-only on devices |
 | Plan | Fresh inventory/intent/device reads and trusted deployment checks; publish one-device plan |
@@ -184,7 +187,7 @@ Use the APD organization/project and `NETWORK ǀ NetBox Security` naming. Keep t
 | Prepare Drift | Explicit presenter-launched, restricted and confirmed lab-only action enabling the two Web UI services on `cat8kv1`; never publishes their ports, never accepts arbitrary CLI, and does not save by default. Drift intentionally does not survive a device reboot: if an audit unexpectedly reports compliant, the device likely rebooted — re-run Prepare Drift |
 | Reset / Cleanup | Separate non-destructive reset, owned service removal, and explicitly confirmed destructive cleanup |
 
-Setup reuses existing templates/workflows rather than cloning provisioning. Do not call Provision Hypervisor unconditionally when attaching to an existing lab. Reuse #391 prerequisite/convergence/failure patterns, without deploying shared Gitea services.
+Setup reuses existing templates/workflows rather than cloning provisioning. Do not call Provision Hypervisor unconditionally when attaching to an existing lab; likewise create-or-reuse the NetBox instance rather than always replacing it. Reuse #391 prerequisite/convergence/failure patterns, without deploying shared Gitea services or copying its secret/ingress practices.
 
 ### Audit and event
 
@@ -232,19 +235,19 @@ Disable simultaneous execution of new workflows/jobs. Prepare/reset/redeployment
 
 ## 9. Persistence, reset, and cleanup
 
-Store deployment-owned Compose configuration, database/media, required secrets and service state outside disposable topology and report directories, proposed `/mnt/images/apd-services/<deployment-id>/netbox/`. Persist and protect credentials across normal runs. Do not copy circuits' forced checkout, default/admin secret printing, `.env` overwrite, or `compose down -v` teardown into ordinary operations.
+Store deployment-owned Compose configuration, database/media, required secrets and service state on the NetBox instance's own disk, proposed `/opt/apd-netbox/`. Persist and protect credentials across normal runs. Do not copy circuits' forced checkout, default/admin secret printing, `.env` overwrite, or `compose down -v` teardown into ordinary operations.
 
 | Operation | Contract |
 |---|---|
 | Ordinary reset | Preserve NetBox DB, device IDs, credentials, intent and historical evidence; invalidate pending plans; do not enable Web UI implicitly |
 | Prepare Drift | Explicit isolated-device setup action for another presentation; record the action and subsequent audit, not a fabricated compliance result |
-| Topology teardown/redeployment | Resets/removes device state and updates generation/eligibility; preserves NetBox services, data, and dedicated access rules |
-| NetBox service removal | Remove owned containers/network/systemd exposure and ingress; preserve data unless explicitly authorized otherwise |
-| Full stack destruction | Explicit confirmation identifying deployment/data loss; remove owned AWS/service resources and persistent data |
+| Topology teardown/redeployment | Resets/removes device state and updates generation/eligibility; the NetBox instance is unaffected — its services, data and access rules persist independently of the hypervisor |
+| NetBox service removal | Remove owned containers/network/systemd exposure and ingress on the NetBox instance; preserve data unless explicitly authorized otherwise |
+| Full stack destruction | Explicit confirmation identifying deployment/data loss; remove owned AWS resources, including terminating the NetBox instance and its persistent data |
 
-The current EBS volumes are deleted on instance termination. Persistence is across ordinary reset/redeployment, not an implicit guarantee across full teardown. Include a basic DB/media backup-and-restore acceptance check without adding an external backup service.
+The NetBox instance's EBS volume is deleted if that instance is terminated. Persistence covers ordinary resets and full lab teardown/redeployment — a stronger guarantee than a colocated design — but not termination of the NetBox instance itself. Include a basic DB/media backup-and-restore acceptance check without adding an external backup service.
 
-Existing discovery can select the first of multiple matches and hypervisor teardown searches more broadly than APD ownership. Add focused exact-target/ownership guards, not a replacement provisioner. The existing Destroy workflow uses an `always` edge to hypervisor teardown: authorize destructive cleanup before that graph and repeat the guard inside directly launchable destructive jobs. Uncertain ownership/data-preservation state must fail closed. Cleanup must remove only this deployment's AAP/EDA/NetBox/service resources, not shared platform credentials, projects or inventories.
+Existing discovery can select the first of multiple matches and hypervisor teardown searches more broadly than APD ownership. Add focused exact-target/ownership guards, not a replacement provisioner. The existing Destroy workflow uses an `always` edge to hypervisor teardown: authorize destructive cleanup before that graph and repeat the guard inside directly launchable destructive jobs — including any job that terminates the NetBox instance. Uncertain ownership state must fail closed. Cleanup must remove only this deployment's AAP/EDA/NetBox/service resources, not shared platform credentials, projects or inventories.
 
 ## 10. Proposed files and staged implementation
 
@@ -255,7 +258,7 @@ These are proposed changes, not content implemented by this specification.
 | Registration and documentation | Extend `network/setup.yml`, `network/README.md`; add `network/docs/network-netbox-security.md`; catalog entry after validation |
 | Inventory | `network/netbox_security/inventory/netbox.yml` |
 | Thin playbook entry points | `network/netbox_security/{setup_lab,deploy_netbox,seed_netbox,configure_eda,audit,plan,apply,prepare_drift,reset,cleanup}.yml` |
-| Service role | `collections/ansible_collections/demo/network/roles/netbox_service/` with Compose/systemd templates, seeding data/tasks, readiness and owned cleanup |
+| Service role | `collections/ansible_collections/demo/network/roles/netbox_service/` with create-or-reuse instance provisioning via `demo.cloud.aws`, Compose/systemd templates, seeding data/tasks, readiness and owned cleanup |
 | Security adapter | `collections/ansible_collections/demo/network/roles/security_webui/` and a narrow parser/contract filter under `plugins/filter/` |
 | EDA | `extensions/eda/rulebooks/network_security.yml`, following the project's actual rulebook discovery conventions |
 | Dedicated EE | Separate NetBox EE definition/requirements under `execution_environments/`; leave existing shared EE definitions unchanged initially |
@@ -284,12 +287,12 @@ Do not change the solution-guide or circuits repositories as part of implementat
 - Changing only the automation **port**, host, management IP, policy, device identity, generation, change window or plan expiry blocks writes. A compliant recheck produces no device/save operation.
 - Workflow denial/timeout/failed sync/plan cannot reach Apply; duplicate events do not repeat a completed device change.
 - Evidence retains partial failures, avoids secrets, escapes HTML and never turns parse/writeback failures into a compliance pass.
-- Render/check Compose isolation, persistent paths, dedicated ingress, scoped cleanup and destructive confirmation. Normal reset/redeployment cannot remove NetBox data.
+- Render/check Compose isolation, persistent paths, dedicated ingress, scoped cleanup and destructive confirmation. Lab reset/redeployment cannot remove NetBox data.
 - Prepare Drift is an explicitly authorized separate adapter; positive enable commands cannot enter the remediation command map.
 
 ### Live AAP 2.7 acceptance
 
-1. Record actual versions/digests and confirm combined resource capacity, readiness and reboot survival.
+1. Record actual versions/digests; verify NetBox instance sizing, service readiness and reboot survival. Lab hypervisor capacity is unchanged by this demo.
 2. Run reconciliation twice: stable asset IDs, working credentials, preserved intent/evidence and no duplicate data. Confirm NetBox inventory is the new jobs' inventory source.
 3. Verify the primary address `172.20.20.12` and mapped automation endpoint `<hypervisor>:2123` independently through the actual EE/AAP connection path.
 4. Confirm NetBox HTTP is restricted, DB/cache and device Web UI ports are not externally published, secrets are not printed, and missing/bad EDA tokens cannot launch workflows.
@@ -297,7 +300,7 @@ Do not change the solution-guide or circuits repositories as part of implementat
 6. Approve; verify fresh checks, disabled HTTP/HTTPS, retained SSH, conditional startup persistence, AAP artifacts/approval history and NetBox evidence.
 7. Repeat audit/apply: compliant/no unnecessary configuration or save; evidence timestamps may still update.
 8. Exercise denial/timeout, stale/duplicate events, changed endpoint/intent/generation, parsing/access failures, failed verification/save, and NetBox writeback failure. No false completion or automatic re-enabling.
-9. Exercise ordinary reset, database restore and topology teardown/redeployment: NetBox data/access survive, stale plans fail, and discovered connection metadata is reconciled before inventory sync.
+9. Exercise ordinary reset, database restore and topology teardown/redeployment: the NetBox instance remains reachable and its data survives lab teardown, stale plans fail, and discovered connection metadata is reconciled before inventory sync.
 10. In an explicitly authorized isolated test, verify scoped service removal and full destruction without affecting another deployment or shared APD resources.
 
 ### Existing-demo regression
@@ -316,7 +319,7 @@ No further architecture choices block implementing this reviewed design. Resolve
 |---|---|
 | Existing IOS-XE lifecycle/security suitability | Use current image as agreed; user selects a replacement separately; document isolation and avoid unsupported security claims |
 | Exact NetBox/EE/DE compatibility and authentication | Select and validate actual versions; documentation checks alone do not establish compatibility |
-| Combined hypervisor capacity | Assume current size fits; measure and increase existing parameters if necessary |
+| Additional EC2 instance for NetBox (cost/sizing) | Follows the #391 small-instance pattern; adjust via existing provisioning parameters only if integration requires |
 | Inventory freshness, mapped ports and device replacement | Fresh sync/read, independent endpoint checks, ownership and generation-bound plans |
 | Concurrent maintenance and stale approvals | Serialize new jobs; invalidate/cancel pending work before reset/redeployment |
 | HTTP carries credentials in cleartext | Explicit lab limitation; restricted ingress and no printed secrets; HTTPS is not a prerequisite |
