@@ -4,7 +4,7 @@
 
 **Target:** Existing APD-provided AAP 2.7, NetBox 4.7.x, and the existing Network lab.
 
-**Boundary:** Specification only. No demo implementation, provisioning, commits, pushes, or PRs are authorized by this document.
+**Boundary:** Specification only. No demo implementation or provisioning is authorized by this document; the specification itself may be committed and revised.
 
 ## 1. Purpose and attendee experience
 
@@ -138,7 +138,7 @@ Create **NetBox Security Inventory**, sourced from `network/netbox_security/inve
 | Intent | Current merged `config_context.apd_network_security` |
 | Latest evidence | JSON custom field `security_evidence`, separate from intent |
 
-The resolver accepts one positive numeric device ID and fixed control `SEC-WEBUI-001`. It requires exactly one eligible inventory host, re-reads the NetBox object, and cross-checks identity, management IP, **automation host and port**, ownership, and generation against trusted APD records/current hypervisor inspection. AAP read access and hypervisor SSH can supply this independent check; do not grant runtime jobs unrestricted provisioning credentials merely to resolve a target.
+The resolver consumes the numeric device ID and fixed control `SEC-WEBUI-001` carried by audit evidence and the event — never presenter input. Audit launches with no survey and assesses every device in the eligible inventory group (one member today: `cat8kv1`); eligibility is NetBox-owned, so adding a device to that group extends the audit with no playbook change. For remediation, the resolver requires exactly one eligible inventory host matching the event's device ID, re-reads the NetBox object, and cross-checks identity, management IP, **automation host and port**, ownership, and generation against trusted APD records/current hypervisor inspection. AAP read access and hypervisor SSH can supply this independent check; do not grant runtime jobs unrestricted provisioning credentials merely to resolve a target.
 
 Never equate NetBox's primary IP with the mapped automation endpoint. Never interpolate event/user input into a host pattern or accept a supplied delegation hostname, endpoint, connection plugin, or command.
 
@@ -175,13 +175,13 @@ Use the APD organization/project and `NETWORK ǀ NetBox Security` naming. Keep t
 
 | Proposed job | Behavior / credentials |
 |---|---|
-| Setup Lab | Wrap existing Network deployment/configuration/validation content; deploy NetBox, reconcile assets, configure inventory and EDA. Also support attaching to an existing lab without redeploying devices |
+| Setup Lab | Workflow chaining the existing Network deployment/configuration/validation templates and the Deploy NetBox, Seed NetBox, and Configure EDA templates below — not one monolithic playbook. Also support attaching to an existing lab without redeploying devices |
 | Deploy NetBox / Seed NetBox | Service/bootstrap operations using existing AWS/hypervisor access and separate NetBox administrative credential; not runtime credentials |
 | Configure EDA | Reuse APD's project/DE registration patterns; create scoped stream credentials, mapping and activation |
 | Audit | NetBox read + device SSH + evidence writer + event producer; read-only on devices |
 | Plan | Fresh inventory/intent/device reads and trusted deployment checks; publish one-device plan |
 | Apply | Workflow-only write privileges, device SSH, NetBox read/evidence writer, and restricted provenance/discovery access; revalidate, apply, verify and conditionally save |
-| Prepare Drift | Explicit presenter-launched, restricted and confirmed lab-only action enabling the two Web UI services on `cat8kv1`; never publishes their ports, never accepts arbitrary CLI, and does not save by default |
+| Prepare Drift | Explicit presenter-launched, restricted and confirmed lab-only action enabling the two Web UI services on `cat8kv1`; never publishes their ports, never accepts arbitrary CLI, and does not save by default. Drift intentionally does not survive a device reboot: if an audit unexpectedly reports compliant, the device likely rebooted — re-run Prepare Drift |
 | Reset / Cleanup | Separate non-destructive reset, owned service removal, and explicitly confirmed destructive cleanup |
 
 Setup reuses existing templates/workflows rather than cloning provisioning. Do not call Provision Hypervisor unconditionally when attaching to an existing lab. Reuse #391 prerequisite/convergence/failure patterns, without deploying shared Gitea services.
@@ -198,11 +198,11 @@ Setup reuses existing templates/workflows rather than cloning provisioning. Do n
 ### Plan, approval, application
 
 ```text
-Sync NetBox inventory -> Plan -> Native AAP approval (15-minute timeout)
+Sync NetBox inventory -> Plan -> Native AAP approval (60-minute timeout)
   -> Sync inventory again -> Revalidate / Apply / Verify / Evidence
 ```
 
-The plan binds one device, management IP, automation **host and port**, ownership/generation, observed identity/state, policy hash/revision, content revision, exact command allowlist, source/plan job IDs, and issue/expiry times. Use a 15-minute initial event/plan lifetime; expiry during approval/synchronization fails safely and requires reassessment.
+The plan binds one device, management IP, automation **host and port**, ownership/generation, observed identity/state, policy hash/revision, content revision, exact command allowlist, source/plan job IDs, and issue/expiry times. Use a 60-minute approval-node timeout matched to plan validity — a paused walkthrough must not expire a pending approval — and short (~10-minute) event freshness so stale events never launch the workflow. Expiry during approval/synchronization fails safely and requires reassessment.
 
 Only approval success reaches Apply. Native approval plus RBAC and trusted predecessor artifacts provide authorization; an event or caller-supplied `approved_plan`/`approved` value does not. Validate the actual predecessor/approval relationship using AAP-supported mechanisms, not a custom approval service. Limit launch inputs to the expected scalar identifiers/references; prohibit arbitrary variables and direct presenter/EDA launch of Apply.
 
