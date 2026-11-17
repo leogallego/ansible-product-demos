@@ -1,0 +1,34 @@
+---
+# NetBox Network Security EE collection requirements.
+# Dedicated EE for the NetBox Security Inventory source, the new device-security
+# jobs (Audit, Plan, Apply, Prepare Drift), and the new bootstrap jobs.
+# NetBox/security runtime:
+collections:
+  # Inventory source, seeding, evidence writeback (spec-pinned).
+  - name: netbox.netbox
+    version: "==3.23.1"
+  # Device-security jobs reuse APD's proven network version ceilings; the
+  # shared-EE constraints exist for core 2.16 compatibility and this EE keeps
+  # the same base image, so the same bounds apply. Do not upgrade shared
+  # working dependencies to obtain matching documentation (spec section 6).
+  - name: ansible.netcommon
+    version: "<8.7.0"
+  - name: cisco.ios
+    version: "<11.6.0"
+  # Bootstrap jobs only (Setup Lab chain, NetBox provisioning, Configure EDA):
+  # AWS/Podman/AAP-configuration collections per spec section 7.
+  - name: amazon.aws
+    version: "<11.6.0"
+  - name: community.aws
+    version: "<11.2.0"
+  - name: ansible.posix
+    version: "<2.3.0"
+  - name: containers.podman
+    version: "<1.21.0"
+  - name: ansible.controller
+    version: ">=4.8"
+  - name: infra.aap_configuration
+    version: ">=3.4.1"
+  - name: ansible.eda
+    version: ">=2.12.0"
+...
