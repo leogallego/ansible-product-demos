@@ -477,6 +477,23 @@
     playbooks: 1
   github_path: linux/run_script.yml
 
+- slug: linux-fleet-ao-smoke
+  readme_path: linux/docs/linux-fleet-ao-smoke.md
+  url: /demos/linux-fleet-ao-smoke/
+  title: "Fleet AO Smoke Service"
+  category: linux
+  status: active
+  tags:
+    - Playbook
+    - Automation Orchestrator
+  thumbnail:
+    gradient: "linear-gradient(135deg, #d13438 0%, #7a0000 100%)"
+    icon: "🐧"
+  blurb: "Start and verify the short-lived service used by the Fleet Automation Orchestrator integration."
+  stats:
+    playbooks: 1
+  github_path: linux/fleet_ao_smoke.yml
+
 - slug: linux-install-ssh-key
   readme_path: linux/docs/linux-install-ssh-key.md
   url: /demos/linux-install-ssh-key/
@@ -1010,6 +1027,48 @@
       style K fill:#162c46,stroke:#58a6ff,color:#fff
       style L fill:#162c46,stroke:#58a6ff,color:#fff
       style M fill:#4a1a1a,stroke:#ef4444,color:#fff
+      style S fill:#212427,stroke:#8a8d90,color:#fff
+
+- slug: windows-destroy-ad-domain
+  readme_path: windows/docs/windows-destroy-ad-domain.md
+  title: "Destroy Active Directory Domain"
+  category: windows
+  status: active
+  is_workflow: true
+  tags:
+    - Workflow
+    - Survey
+    - Active Directory
+    - AWS
+  thumbnail:
+    gradient: "linear-gradient(135deg, #dc2626 0%, #7f1d1d 100%)"
+    icon: "💥"
+  blurb: "Tear down the domain controller, both domain-joined hosts, VPC, and keypair created by Setup Active Directory Domain, reset AD credentials, and sync inventory."
+  stats:
+    workflows: 1
+    playbooks: 5
+  url: /demos/windows-destroy-ad-domain/
+  github_path: windows/setup.yml
+  workflow_mermaid: |
+    graph LR
+      S["🏠 Start"]
+      S --> A
+      S --> B
+      S --> C
+      S --> D
+      A["💥 Delete dc01"] --> F["🔄 Sync Inventory"]
+      B["💥 Delete winston"] --> F
+      C["💥 Delete winthrop"] --> F
+      D["🔧 Reset AD Configuration"] --> F
+      F --> G["🔑 Delete Keypair"]
+      F --> H["🌐 Delete VPC"]
+      style A fill:#4a1a1a,stroke:#ef4444,color:#fff
+      style B fill:#4a1a1a,stroke:#ef4444,color:#fff
+      style C fill:#4a1a1a,stroke:#ef4444,color:#fff
+      style D fill:#2d1f4e,stroke:#a78bfa,color:#fff
+      style F fill:#2d2d2d,stroke:#888,color:#fff
+      style G fill:#1e3a5f,stroke:#4a90d9,color:#fff
+      style H fill:#1e3a5f,stroke:#4a90d9,color:#fff
       style S fill:#212427,stroke:#8a8d90,color:#fff
 
 # ─── Network ────────────────────────────────────────────────────────
@@ -1861,20 +1920,21 @@
 - slug: infrastructure-shared-services
   readme_path: infrastructure/docs/shared-services.md
   title: "Infrastructure | AWS — Deploy Shared Services"
-  subtitle: "One-click VPC, keypair, Mattermost, and Gitea without cloud-stack VMs"
+  subtitle: "One-click VPC, keypair, Mattermost, Gitea, and OpenFlake"
   category: infrastructure
   status: active
   tags:
     - AWS
     - Chat
     - Git
+    - OpenShift
     - Workflow
   thumbnail:
     gradient: "linear-gradient(135deg, #231f20 0%, #3d7ea6 100%)"
     icon: "🧩"
-  blurb: "Create VPC and keypair, then provision Mattermost and Gitea in parallel — shared lab services without the five Deploy Cloud Stack VMs."
+  blurb: "Create VPC and keypair, then provision Mattermost and Gitea in parallel while OpenFlake installs on OpenShift — shared lab services without the five Deploy Cloud Stack VMs."
   stats:
-    playbooks: 2
+    playbooks: 3
   url: /demos/infrastructure-shared-services/
   github_path: infrastructure/setup.yml
 
