@@ -1,0 +1,75 @@
+---
+# NetBox Security Inventory source — STAGE 1 DRAFT (spec section 5).
+#
+# Draft only: variable shapes and filter behavior follow the netbox.netbox
+# 3.23.1 plugin source but have NOT been validated against a live NetBox or
+# in-AAP synchronization. Stage 2 must validate with a live sync before any
+# device play relies on this inventory.
+#
+# Credentials: NETBOX_API and NETBOX_TOKEN are supplied by the AAP NetBox read
+# credential (environment injection). They are deliberately NOT in this file.
+#
+# Controller-side settings (set on the NetBox Security Inventory source in
+# stage 2, not expressible here): overwrite behavior and variable refresh;
+# explicit pre-sync before Plan and Apply; the localhost preflight that fails
+# on empty/unauthorized/missing-data inventories (the plugin converts HTTP 403
+# into EMPTY resource lists, so a successful sync proves nothing on its own).
+
+plugin: netbox.netbox.nb_inventory
+
+# Demo-wide explicit settings: no plugin caching, no launch cache timeout.
+cache: false
+cache_timeout: 0
+timeout: 30
+
+# Never bypass certificate verification.
+validate_certs: true
+
+# Keep merged context and custom fields namespaced and unflattened:
+# config_context.* and custom_fields.* stay nested host vars.
+config_context: true
+flatten_config_context: false
+flatten_custom_fields: false
+plurals: false
+
+# Scope server-side to owned demo remediation targets. query_filters are
+# logical OR across entries; device_query_filters entries are ANDed.
+fetch_all: false
+services: false
+interfaces: false
+device_query_filters:
+  - has_primary_ip: "true"
+  - status: active
+  - platform: cisco-iosxe
+  - tag: security-demo
+
+# Expected-deployment scoping needs the deployment identifier as an extra var
+# at sync time (AAP job extra var, wired in stage 2). PROVISIONAL: if extra
+# vars are not resolvable in these plugin expressions with use_extra_vars, the
+# deployment match moves into the stage 2 localhost preflight.
+use_extra_vars: true
+groups:
+  security_eligible: >-
+    status.value is defined and status.value == 'active'
+    and platform is defined and platform == 'cisco-iosxe'
+    and tags is defined and 'security-demo' in tags
+    and custom_fields.apd_deployment_id is defined
+    and custom_fields.apd_deployment_id == (apd_expected_deployment | default(''))
+
+# Explicit composition ONLY: the automation endpoint comes exclusively from
+# the apd_automation_endpoint custom-field object (hypervisor host + mapped
+# port, 2123 for cat8kv1). The NetBox primary management IP (172.20.20.12 for
+# cat8kv1) is an address on the device network, NOT an automation endpoint,
+# and must never become ansible_host or ansible_port. If the custom field is
+# missing, composition silently yields no var and the plugin's default
+# ansible_host (the primary IP) would leak through — the stage 2 preflight
+# rejects exactly that; do not remove this comment before that check exists.
+compose:
+  netbox_device_id: id
+  netbox_management_ip: primary_ip.address | regex_replace('/.+$', '')
+  ansible_host: custom_fields.apd_automation_endpoint.host
+  ansible_port: custom_fields.apd_automation_endpoint.port
+  ansible_network_os: cisco.ios.ios
+  ansible_connection: ansible.netcommon.network_cli
+  netbox_topology_generation: custom_fields.apd_topology_generation
+  netbox_deployment_id: custom_fields.apd_deployment_id

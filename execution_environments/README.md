@@ -29,6 +29,17 @@ and select that image for Product Demos EE before running Network setup and
 the demo jobs. Attach a Container Registry credential when using a private
 registry. Live acceptance was performed with a rebuilt AAP 2.7 EE on x86_64.
 
+## NetBox Network Security EE
+
+`apd-ee-netbox.yml` / `requirements-netbox.yml` define a dedicated EE for the
+NetBox Network Security demo (spec `specs/netbox-network-security.md`, section
+6): the `netbox.netbox` 3.23.1 inventory source, the new device-security jobs,
+and the new bootstrap jobs. It keeps the AAP 2.7 core 2.16 base image and
+mirrors the proven shared-EE network ceilings (`ansible.netcommon <8.7.0`,
+`cisco.ios <11.6.0`); the AWS, Podman, and AAP-configuration collections are
+included only for the new bootstrap jobs. Build it with the same
+`build.sh` flow (pass the image name `quay.io/ansible-product-demos/apd-ee-netbox`).
+
 ## AAP 2.7 compatibility
 
 The pinned AAP 2.7 base image ships Ansible core 2.16. The non-network
