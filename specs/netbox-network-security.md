@@ -127,7 +127,7 @@ Record the limitation: Cisco's 17.13.x bulletin lists security/software maintena
 Create **NetBox Security Inventory**, sourced from `network/netbox_security/inventory/netbox.yml` with `netbox.netbox.nb_inventory`, using the dedicated EE and a NetBox read credential.
 
 - Scope queries to owned demo assets and construct an explicit eligible security group. Require active status, platform `cisco-iosxe`, the security-demo tag, and the expected deployment.
-- Keep merged context and custom fields namespaced/unflattened; use explicit composition for connection variables. Disable plugin caching for the demo, refresh at launch, and explicitly synchronize before planning and applying.
+- Keep merged context and custom fields namespaced/unflattened; use explicit composition for connection variables. Configure the source explicitly for the demo: disable plugin caching, zero launch cache timeout, and source overwrite/variable-refresh behavior set per the selected plugin version, with explicit synchronization before planning and applying. Controller-side inventory retention and plugin caching are separate mechanisms — both must be addressed. The inventory plugin converts HTTP 403 responses into empty resource lists, so synchronization success alone proves nothing: a localhost preflight must reject an empty, unauthorized, or missing-required-data inventory before any device play runs, and a device-targeted play matching zero hosts is an error, never a silent success. Removal of previously eligible assets is an expected, handled outcome.
 - Export `netbox_device_id`, actual management IP, deployment/generation metadata, `ansible_host`, `ansible_port`, `ansible_network_os`, and connection settings. Validate the selected plugin version's actual variable shapes with fixtures and a live sync; do not copy unvalidated guide expressions blindly.
 - Keep existing ContainerLab Inventory intact. Security runtime device targeting comes from NetBox inventory, with independent APD deployment information used to validate it, not bypass it.
 
@@ -176,6 +176,8 @@ Before live acceptance, record exact AAP build, NetBox patch/Compose revision, d
 
 Use the APD organization/project and `NETWORK ǀ NetBox Security` naming. Keep the presenter-visible runtime to Audit, one remediation workflow, and evidence. Additional synchronization/safety checks are internal mechanics, not separate presentation features.
 
+Two job classes have different inventory and EE contracts. **Bootstrap jobs** (Setup Lab, Provision/Configure/Seed NetBox, Configure EDA, Reset/Cleanup) run on `localhost`/AWS control inventory with the existing Product Demos EE and must never depend on NetBox inventory that does not exist yet. **Runtime security jobs** (Audit, Plan, Apply) use the NetBox Security Inventory and the dedicated NetBox EE. Reused Network templates keep their existing inventories and EE unchanged; a per-node inventory/EE assignment table is part of the Stage 1 contracts. New security jobs define fail-fast timeouts sized to a conference walkthrough — inherited long connection waits (e.g., device boot) belong only in setup jobs, and fault injection is acceptance material, not part of the visible runtime.
+
 | Proposed job | Behavior / credentials |
 |---|---|
 | Setup Lab | Workflow chaining the existing Network deployment/configuration/validation templates and the NetBox provisioning/seeding and Configure EDA templates below — not one monolithic playbook. Also support attaching to an existing lab without redeploying devices |
@@ -205,7 +207,7 @@ Sync NetBox inventory -> Plan -> Native AAP approval (60-minute timeout)
   -> Sync inventory again -> Revalidate / Apply / Verify / Evidence
 ```
 
-The plan binds one device, management IP, automation **host and port**, ownership/generation, observed identity/state, policy hash/revision, content revision, exact command allowlist, source/plan job IDs, and issue/expiry times. Use a 60-minute approval-node timeout matched to plan validity — a paused walkthrough must not expire a pending approval — and short (~10-minute) event freshness so stale events never launch the workflow. Expiry during approval/synchronization fails safely and requires reassessment.
+The plan binds one device, management IP, automation **host and port**, ownership/generation, observed identity/state, policy hash/revision, content revision, exact command allowlist, source/plan job IDs, and issue/expiry times. Both limits are 60 minutes with explicit clock origins: plan validity starts when Plan completes, and the approval-node timeout starts when the approval node starts. Post-approval synchronization and queueing consume additional time, so an approval accepted within its native timeout can still reach an expired plan — the workflow displays remaining validity and treats late approval as safe reassessment, not a failure of the approval itself. Event freshness is short (~10 minutes) so stale events never launch the workflow. Expiry during approval/synchronization fails safely and requires reassessment.
 
 Only approval success reaches Apply. Native approval plus RBAC and trusted predecessor artifacts provide authorization; an event or caller-supplied `approved_plan`/`approved` value does not. Validate the actual predecessor/approval relationship using AAP-supported mechanisms, not a custom approval service. Limit launch inputs to the expected scalar identifiers/references; prohibit arbitrary variables and direct presenter/EDA launch of Apply.
 
@@ -218,9 +220,11 @@ no ip http server
 no ip http secure-server
 ```
 
+as its only permitted **configuration payload**. Trusted session handling, read/verification commands, and the conditional persistence operation are separately enumerated in the adapter contract; they are not part of the configurable command map, and positive enable commands can never enter it.
+
 Afterward verify both services effectively disabled and reconnect/check SSHv2. Save verified configuration only when this job changed running state; record no-op persistence as not requested unless separately checked. Saving can persist unrelated edits, so require an exclusive demo change window and a protected pre-change backup: before any mutation, capture the configuration to the NetBox instance's protected persistent disk under a job-qualified filename and record a sanitized reference in evidence. The existing `network/backup.yml` writes `/tmp/network_backups/` on the execution node and is explicitly not durable storage — successful backup preservation gates the change, and backup failure blocks it.
 
-Disable simultaneous execution of new workflows/jobs. Prepare/reset/redeployment must not race active security jobs: suspend new triggers, cancel/invalidate pending plans, and check active work before maintenance. A generation change invalidates old plans. No new locking service or event ledger is required for this one-device demo.
+Template-level "disable simultaneous execution" serializes only instances of the same template — it does not stop Prepare Drift racing Apply, reset racing Apply, or the existing Configure Devices job (whose `save_when: modified` can persist running configuration, including prepared drift) racing security jobs. An admission/maintenance procedure must therefore cover all relevant writers: suspend new triggers, cancel/invalidate pending plans, verify no active security or configuration work, and record the maintenance intent before proceeding — otherwise serialization is documented as an operational precondition, not an enforced guarantee. A generation change invalidates old plans. No new locking service or event ledger is required for this one-device demo.
 
 ## 8. Evidence, credentials, and failure behavior
 
@@ -257,7 +261,7 @@ These are proposed changes, not content implemented by this specification.
 |---|---|
 | Registration and documentation | Extend `network/setup.yml`, `network/README.md`; add `network/docs/network-netbox-security.md`; catalog entry after validation |
 | Inventory | `network/netbox_security/inventory/netbox.yml` |
-| Thin playbook entry points | `network/netbox_security/{setup_lab,deploy_netbox,seed_netbox,configure_eda,audit,plan,apply,prepare_drift,reset,cleanup}.yml` |
+| Thin playbook entry points | `network/netbox_security/{deploy_netbox,seed_netbox,configure_eda,audit,plan,apply,prepare_drift,reset,cleanup}.yml` — Setup Lab is workflow composition only and has no separate playbook |
 | Service role | `collections/ansible_collections/demo/network/roles/netbox_service/` with create-or-reuse instance provisioning via `demo.cloud.aws`, Compose/systemd templates, seeding data/tasks, readiness and owned cleanup |
 | Security adapter | `collections/ansible_collections/demo/network/roles/security_webui/` and a narrow parser/contract filter under `plugins/filter/` |
 | EDA | `extensions/eda/rulebooks/network_security.yml`, following the project's actual rulebook discovery conventions |
@@ -270,7 +274,7 @@ Stages:
 1. **Contracts and EE:** inspect actual APD runtime, choose/build the dedicated EE, implement offline parser/inventory/policy/plan contracts and retain existing test coverage.
 2. **Lab integration:** reuse Network workflows; add generation/ownership/persistence guards, persistent HTTP NetBox, idempotent reconciliation and mandatory dynamic inventory.
 3. **Read-only story:** audit, evidence, optional existing report integration, and explicit Prepare Drift; validate without enabling automatic remediation.
-4. **Event and approval:** authenticated Event Stream, restricted EDA activation, native approval and negative/provenance tests.
+4. **Event and approval:** authenticated Event Stream, restricted EDA activation, native approval and negative/provenance tests — including a live **no-write Apply stub** in real AAP that proves legitimate artifact propagation and rejects direct launches, forged/cross-workflow plans, unexpected launch variables, and failed provenance reads, plus negative NetBox permission tests. **Stage 5 is gated on these results.**
 5. **Bounded correction:** revalidation, disable-only commands, operational/SSH verification, conditional save, accurate failure handling.
 6. **Acceptance:** execute live scenario, persistence/cleanup and existing-demo regressions; record exact versions/digests and presenter instructions before claiming validation.
 
