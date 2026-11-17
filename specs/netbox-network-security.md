@@ -31,7 +31,7 @@ Provisioning, inventory setup, and an explicit lab-only **Prepare Drift** job ha
 - Keep the complete `product_demos` topology. Initially remediate only its C8000V, `cat8kv1`.
 - Run NetBox as a persistent Podman Compose stack on a dedicated, deployment-owned EC2 instance, following APD's Gitea/Mattermost provisioning pattern (#391) — not on the lab hypervisor.
 - Make NetBox dynamic inventory mandatory for the new security jobs; leave existing jobs on their current inventory.
-- Use a dedicated NetBox EE for new jobs and inventory synchronization. Preserve Product Demos EE and existing working dependencies.
+- Use two execution environments for new jobs, assigned by dependency (§6/§7): Red Hat's maintained `ee-supported-rhel9` image (zero build) for AWS/AAP/EDA-side jobs, and a dedicated `apd-netbox-ee` for NetBox/inventory/device-security jobs. Preserve Product Demos EE and existing working dependencies.
 - Use restricted **HTTP** access to NetBox, default port `8000` on the NetBox instance, consistent with APD's existing AWS service exposure pattern.
 - Use native AAP workflow approval, a short-lived one-device plan, and a disable-only IOS-XE adapter.
 - Size the NetBox instance modestly at the Gitea/Mattermost baseline and adjust through the same provisioning parameters only if integration shows it is necessary. Lab hypervisor capacity is unchanged by this demo.
@@ -49,6 +49,8 @@ Repository instructions and local history were inspected before authoring. Exist
 | `~/ai/summit-netbox-circuits-demo` | `fd319db`; unrelated modified/untracked work present | Read-only reference for Compose, seeding, and AAP/EDA registration |
 
 Local APD history includes:
+
+- **Post-Stage-1 realignment:** after Stage 1 completed, the branch was realigned with fork `main` — it now contains upstream/main `1a5c7eb` via merge `eda43c0` (five upstream commits, verified zero file overlap with the demo paths) plus the sixteen scenario commits.
 
 - **PR #381, `61250f8`:** Multivendor catalog/rendering, mapped-port inventory, configuration, validation, reporting, redaction, and tests.
 - **PR #391, `39b3a50`:** Shared-service registration, prerequisite checks, multi-play host configuration, workflow convergence, and failure-edge patterns. Do not introduce Gitea or copy public ingress/printed-secret practices.
@@ -153,9 +155,15 @@ Missing/malformed policy is an error. `required_for_services: true` is blocked/r
 
 ## 6. EE and documentation evidence
 
-Create **NetBox Network Security EE** for the inventory source and new NetBox/security jobs. Include `netbox.netbox`, compatible `pynetbox`, `packaging`, `pytz`, `cisco.ios`, `ansible.netcommon`, and the existing SSH transport dependencies. Add AWS/Podman/AAP configuration collections only for new setup jobs that actually need them. Reuse APD's existing Decision Environment if sufficient; a DE is separate from this EE.
+**Decision record (post-Stage-1 realignment):** the demo uses **two execution environments, assigned by dependency, not job class** (normative assignment table in §7 and the Stage 1 contracts document):
 
-Preserve Product Demos EE for existing jobs. Choose compatible current dependencies for the dedicated EE, reusing proven network versions where appropriate; do not arbitrarily pin old collections, upgrade shared working dependencies, or treat the lookup environment's core 2.16 as an architectural constraint. A justified newer-core dedicated EE is acceptable. Consolidation into Product Demos EE is future work, not an initial task.
+- **EE-A — Red Hat-maintained supported image, zero build.** `registry.redhat.io/ansible-automation-platform-27/ee-supported-rhel9`, pinned to a specific tag (latest known build 2026-10-30; the exact tag/digest is recorded in the contracts document after verification). Red Hat maintains it; the demo builds nothing on top. Known contents cover everything the AWS/AAP/EDA-side jobs need: `amazon.aws` 10.3.0, `ansible.posix` 2.2.2, `ansible.controller` 4.8.12, `ansible.eda` 2.12.1, `cisco.ios` 11.3.0, `ansible.netcommon` 8.6.2, and the `paramiko`/`ncclient`/`pytz`/`packaging` Python dependencies. It lacks `netbox.netbox`, `pynetbox`, and `containers.podman` — expected and fine, because no job assigned to EE-A needs them (podman lives on the NetBox EC2 instance, not in the EE).
+- **EE-B — new `apd-netbox-ee`, built in the user's ee-builds fork.** Based on the `network-netbox-eda-ee` lineage (read as reference, never modified), modernized to an `ee-minimal-rhel9` base from the ansible-core 2.16 line, pinned by specific tag with digest recorded, and trimmed to: `netbox.netbox==3.23.1`, `pynetbox`, `cisco.ios`, `ansible.netcommon`, `paramiko` — and nothing more. If live verification exposes a genuine import gap needed by the demo's inventory/filters (e.g. `packaging`, `pytz`, `ncclient`), the addition is reported explicitly. Published to `quay.io/acme_corp`; drift is controlled by the base pin, not `latest`.
+- **Deliberately dropped** from the earlier Stage 1 contract: `community.aws` (only the cloud demo's peering roles use it), `infra.aap_configuration` (AAP registration runs in the Product Demos EE), and `passlib` (key-only SSH auth avoids password hashing).
+
+Reuse APD's existing Decision Environment if sufficient; a DE is separate from these EEs.
+
+Preserve Product Demos EE for existing jobs. Consolidation into Product Demos EE is future work, not an initial task.
 
 The project-configured **ansible-know 0.11.0** server was confirmed connected, including when saving this specification. Documentation results below are authoring evidence, not EE/integration validation:
 
@@ -176,18 +184,18 @@ Before live acceptance, record exact AAP build, NetBox patch/Compose revision, d
 
 Use the APD organization/project and `NETWORK ǀ NetBox Security` naming. Keep the presenter-visible runtime to Audit, one remediation workflow, and evidence. Additional synchronization/safety checks are internal mechanics, not separate presentation features.
 
-Two job classes have different inventory contracts but share one new runtime. **New bootstrap jobs** (Setup Lab, Provision/Configure/Seed NetBox, Configure EDA, Reset/Cleanup) run on `localhost`/AWS control inventory in the **dedicated NetBox EE** — which therefore includes their AWS/Podman/AAP-configuration setup dependencies — and must never depend on NetBox inventory that does not exist yet. **New device-security jobs** (Audit, Plan, Apply, and the presenter-launched Prepare Drift) use the NetBox Security Inventory in that same dedicated EE. Reused Network templates keep their existing inventories and the Product Demos EE unchanged. This separation avoids bootstrap circularity while leaving shared dependencies untouched. A per-node inventory/EE assignment table is part of the Stage 1 contracts. New security jobs define fail-fast timeouts sized to a conference walkthrough — measurable runtime/timeout budgets are defined in the Stage 1 contracts and measured during acceptance, excluding human approval wait — and inherited long connection waits (e.g., device boot) belong only in setup jobs. Fault injection is acceptance material, not part of the visible runtime.
+New jobs are assigned to two execution environments **by dependency, not job class** (decision record in §6). **EE-A** (Red Hat's maintained `ee-supported-rhel9`, zero build) runs the AWS/AAP/EDA-side work: Provision/Configure NetBox (EC2/security-group/Compose/systemd — podman lives on the EC2 instance, not in the EE), Configure EDA, the Setup Lab workflow's AWS/AAP-side templates, and the AWS/AAP side of Reset/Cleanup. **EE-B** (the dedicated `apd-netbox-ee`) runs everything that imports NetBox or touches devices: the NetBox Security Inventory source and its preflight, Seed NetBox, Audit, Plan, Apply, Prepare Drift, and the NetBox-object side of Reset/Cleanup — **Cleanup is split into two templates** (AWS/AAP teardown on EE-A, NetBox objects on EE-B) rather than bloating EE-B with AWS dependencies. **New bootstrap jobs** run on `localhost`/AWS control inventory and must never depend on NetBox inventory that does not exist yet; **new device-security jobs** (Audit, Plan, Apply, Prepare Drift) use the NetBox Security Inventory in EE-B. Reused Network templates keep their existing inventories and the Product Demos EE unchanged. This separation avoids bootstrap circularity while leaving shared dependencies untouched. A per-node inventory/EE assignment table is part of the Stage 1 contracts. New security jobs define fail-fast timeouts sized to a conference walkthrough — measurable runtime/timeout budgets are defined in the Stage 1 contracts and measured during acceptance, excluding human approval wait — and inherited long connection waits (e.g., device boot) belong only in setup jobs. Fault injection is acceptance material, not part of the visible runtime.
 
 | Proposed job | Behavior / credentials |
 |---|---|
 | Setup Lab | Workflow chaining the existing Network deployment/configuration/validation templates and the NetBox provisioning/seeding and Configure EDA templates below — not one monolithic playbook. Also support attaching to an existing lab without redeploying devices |
-| Provision / Configure / Seed NetBox | Create-or-reuse the dedicated NetBox EC2 instance and deploy/configure its Compose stack, then seed — using existing AWS access and a separate NetBox administrative credential; not runtime credentials. A stopped instance is recovered by validated instance ID: started, its (possibly changed) address rediscovered, and AAP endpoint references updated without rotating working tokens. Provisioning never terminates an existing instance — conflict or ambiguity fails closed |
+| Provision / Configure / Seed NetBox | Create-or-reuse the dedicated NetBox EC2 instance and deploy/configure its Compose stack (EE-A: EC2/SG/systemd), then seed (EE-B: NetBox objects) — using existing AWS access and a separate NetBox administrative credential; not runtime credentials. A stopped instance is recovered by validated instance ID: started, its (possibly changed) address rediscovered, and AAP endpoint references updated without rotating working tokens. Provisioning never terminates an existing instance — conflict or ambiguity fails closed |
 | Configure EDA | Reuse APD's project/DE registration patterns; create scoped stream credentials, mapping and activation |
 | Audit | NetBox read + device SSH + evidence writer + event producer; read-only on devices |
 | Plan | Fresh inventory/intent/device reads and trusted deployment checks; publish one-device plan |
 | Apply | Workflow-only write privileges, device SSH, NetBox read/evidence writer, and restricted provenance/discovery access; revalidate, apply, verify and conditionally save |
 | Prepare Drift | Explicit presenter-launched, restricted and confirmed lab-only action enabling the two Web UI services on `cat8kv1`; never publishes their ports, never accepts arbitrary CLI, and does not save by default. Drift intentionally does not survive a device reboot — provided no other operation saves running configuration (see the admission/maintenance procedure below) — so if an audit unexpectedly reports compliant, the device likely rebooted; re-run Prepare Drift |
-| Reset / Cleanup | Separate non-destructive reset, owned service removal, and explicitly confirmed destructive cleanup |
+| Reset / Cleanup | Split into two templates: AWS/AAP teardown (EE-A) and NetBox-object removal (EE-B). Separate non-destructive reset, owned service removal, and explicitly confirmed destructive cleanup |
 
 Setup reuses existing templates/workflows rather than cloning provisioning. Do not call Provision Hypervisor unconditionally when attaching to an existing lab; likewise create-or-reuse the NetBox instance rather than always replacing it. Reuse #391 prerequisite/convergence/failure patterns, without deploying shared Gitea services or copying its secret/ingress practices.
 
@@ -271,8 +279,8 @@ These are proposed changes, not content implemented by this specification.
 
 Stages:
 
-1. **Contracts and EE:** inspect actual APD runtime, choose/build the dedicated EE, implement offline parser/inventory/policy/plan contracts and retain existing test coverage.
-2. **Lab integration:** reuse Network workflows; add generation/ownership/persistence guards, persistent HTTP NetBox, idempotent reconciliation and mandatory dynamic inventory.
+1. **Contracts and EE:** inspect actual APD runtime, choose the EEs, implement offline parser/inventory/policy/plan contracts and retain existing test coverage. *(Completed, plus a pre-Stage-2 session: the two-EE model was adopted (§6), and the `apd-netbox-ee` (EE-B) image was built in the user's ee-builds fork and published via that repository's CI; EE-A requires no build.)*
+2. **Lab integration:** reuse Network workflows; add generation/ownership/persistence guards, persistent HTTP NetBox, idempotent reconciliation and mandatory dynamic inventory. **Stage 2 starts from the published EE-B image — zero EE work remains.**
 3. **Read-only story:** audit, evidence, optional existing report integration, and explicit Prepare Drift; validate without enabling automatic remediation.
 4. **Event and approval:** authenticated Event Stream, restricted EDA activation, native approval and negative/provenance tests — including a live **no-write Apply stub** in real AAP that proves legitimate artifact propagation and rejects direct launches, forged/cross-workflow plans, unexpected launch variables, and failed provenance reads, plus negative NetBox permission tests. **Stage 5 is gated on these results.**
 5. **Bounded correction:** revalidation, disable-only commands, operational/SSH verification, conditional save, accurate failure handling.

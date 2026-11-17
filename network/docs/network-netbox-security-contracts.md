@@ -13,20 +13,28 @@ definition; the approval node has its own native 60-minute timeout.
 
 ## Per-node inventory and EE assignment
 
-Two job classes share the dedicated **NetBox Security EE**
-(`execution_environments/apd-ee-netbox.yml`) but never share an inventory.
+New jobs are assigned to two execution environments **by dependency, not job class** (spec §6 decision record):
+
+- **EE-A** — `registry.redhat.io/ansible-automation-platform-27/ee-supported-rhel9`, pinned to a specific tag (latest known build 2026-10-30; final pinned tag recorded after verification). Zero build — Red Hat maintains it. Contents cover the AWS/AAP/EDA-side jobs (`amazon.aws` 10.3.0, `ansible.posix` 2.2.2, `ansible.controller` 4.8.12, `ansible.eda` 2.12.1, `cisco.ios` 11.3.0, `ansible.netcommon` 8.6.2, plus `paramiko`/`ncclient`/`pytz`/`packaging`). It lacks `netbox.netbox`, `pynetbox`, and `containers.podman` — no EE-A job needs them.
+- **EE-B** — the dedicated **NetBox Security EE** (`apd-netbox-ee`, built in the user's ee-builds fork; definition record `execution_environments/apd-ee-netbox.yml`). Carries `netbox.netbox==3.23.1`, `pynetbox`, `cisco.ios`, `ansible.netcommon`, `paramiko` and nothing more.
+
+The two EEs never share an inventory assignment: bootstrap jobs run on `localhost`/AWS control, device-security jobs on the NetBox Security Inventory.
 
 | Job | Inventory | EE | Notes |
 |---|---|---|---|
-| NetBox Security Inventory (source) | — | NetBox Security EE | Source file `network/netbox_security/inventory/netbox.yml`; explicit sync before Plan and Apply |
-| Setup Lab (workflow) | per chained template | per chained template | Workflow composition only — chains existing Network templates plus the new NetBox/EDA templates below |
-| Provision / Configure / Seed NetBox | localhost / AWS control | NetBox Security EE | `localhost` + AWS credentials; must never depend on NetBox inventory that does not exist yet |
-| Configure EDA | localhost / AWS control | NetBox Security EE | Controller/EDA registration; no NetBox inventory dependency |
-| Reset / Cleanup | localhost / AWS control | NetBox Security EE | Non-destructive reset; destructive cleanup separately confirmed |
-| Audit | NetBox Security Inventory | NetBox Security EE | Read-only on devices; launches with no survey |
-| Plan | NetBox Security Inventory | NetBox Security EE | Fresh sync, intent/device reads, trusted deployment checks |
-| Apply | NetBox Security Inventory | NetBox Security EE | Workflow-only; revalidates then writes |
-| Prepare Drift | NetBox Security Inventory | NetBox Security EE | Presenter-launched lab-only enable adapter (separately authorized, stage 3) |
+| NetBox Security Inventory (source) | — | EE-B (`apd-netbox-ee`) | Source file `network/netbox_security/inventory/netbox.yml`; explicit sync before Plan and Apply |
+| NetBox inventory preflight | localhost | EE-B (`apd-netbox-ee`) | Rejects empty/unauthorized/missing-data inventories before any device play |
+| Setup Lab (workflow) | per chained template | per chained template | Workflow composition only — chains existing Network templates (Product Demos EE, unchanged) plus the new NetBox/EDA templates below |
+| Provision NetBox (EC2/SG/Compose/systemd) | localhost / AWS control | EE-A | `localhost` + AWS credentials; podman lives on the EC2 instance, not in the EE; must never depend on NetBox inventory that does not exist yet |
+| Configure NetBox (on-instance) | provisioned instance | EE-A | Compose/systemd configuration via SSH; no NetBox dependency |
+| Seed NetBox | localhost | EE-B (`apd-netbox-ee`) | NetBox object creation; first job needing `netbox.netbox` |
+| Configure EDA | localhost / AWS control | EE-A | Controller/EDA registration; no NetBox inventory dependency |
+| Cleanup — AWS/AAP side | localhost / AWS control | EE-A | Instance/SG/AAP-EDA teardown; split from NetBox-object cleanup |
+| Cleanup — NetBox objects | localhost | EE-B (`apd-netbox-ee`) | NetBox-object removal via `netbox.netbox`; split avoids loading EE-B with AWS dependencies |
+| Audit | NetBox Security Inventory | EE-B (`apd-netbox-ee`) | Read-only on devices; launches with no survey |
+| Plan | NetBox Security Inventory | EE-B (`apd-netbox-ee`) | Fresh sync, intent/device reads, trusted deployment checks |
+| Apply | NetBox Security Inventory | EE-B (`apd-netbox-ee`) | Workflow-only; revalidates then writes |
+| Prepare Drift | NetBox Security Inventory | EE-B (`apd-netbox-ee`) | Presenter-launched lab-only enable adapter (separately authorized, stage 3) |
 | Existing Network templates (Deploy, Configure Devices, Validate, Report, Backup, Troubleshoot, Destroy) | unchanged (ContainerLab Inventory etc.) | Product Demos EE | Untouched; Configure Devices keeps `save_when: modified` — races with security jobs are covered by the admission/maintenance procedure (spec §7) |
 | Existing Staging / Upgrade jobs | unchanged | Product Demos EE | Not invoked by this scenario |
 
@@ -80,7 +88,7 @@ Notes:
 | EDA event contract | `plugins/filter/security_event.py` | Offline; freshness 600 s; event type/schema are proposed and confirmed at stage 4 against the actual DE |
 | Evidence contract | `plugins/filter/security_evidence.py` | Offline; sanitization and required fields |
 | Inventory source draft | `network/netbox_security/inventory/netbox.yml` | Structure checks only — stage 2 must validate plugin variable shapes with a live sync |
-| Dedicated EE definition | `execution_environments/apd-ee-netbox.yml`, `requirements-netbox.yml` | Definition only — image not yet built; build/sync validation at stage 2/6 |
+| Dedicated EE definition | `execution_environments/apd-ee-netbox.yml`, `requirements-netbox.yml` | Redefined for the two-EE model; EE-B image built and published in the pre-Stage-2 session (final tag/digest recorded below once verified). EE-A is a Red Hat-maintained reference image — no definition file, recorded in the assignment table above |
 | Tests | `collections/ansible_collections/demo/network/tests/test_security_*.py`, `test_netbox_*.py` | 79 passed + 97 subtests, offline |
 
 ## Known gaps (recorded, not guessed)
