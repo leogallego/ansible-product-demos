@@ -31,3 +31,5 @@ docs/demos/*/index.md
 
 # OpenCode project-local skills (symlinked from ~/ai/ai-skills-ansible)
 .opencode/
+# Local test virtualenv (uv-managed)
+.venv/
